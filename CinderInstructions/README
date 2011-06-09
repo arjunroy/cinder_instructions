@@ -1,0 +1,269 @@
+Cinder Linux Repositories
+
+=============================================
+REQUIRED REPOSITORIES
+=============================================
+
+msm: Contains the Linux kernel for the HTC Dream Dev Phone 1, modified to
+provide Cinder primitives.
+
+userspace: Contains userspace tests, the PowerArbiter daemon, the PAController
+CLI program, and a couple of useful scripts for compiling Cinder and
+applications that run on the phone.
+
+dalvik: Contains the code for the Dalvik VM from the Android Open Source Project
+(AOSP), modified to integrate with Cinder.
+
+wlan: Contains the wireless driver for the Dev Phone 1's wireless device,
+modified to integrate with Cinder.
+
+=============================================
+OPTIONAL REPOSITORIES
+=============================================
+
+base: Contains the base android platform (framework/base in the AOSP code),
+modified to instrument which task has activated or deactivated the wireless
+device. Optional, not needed for Cinder.
+
+webkit: Contains the webkit code from AOSP (external/webkit in the AOSP code),
+modified to remove a compilation error. Optional, not needed if the AOSP webkit
+code compiles cleanly on your system.
+
+=============================================
+BUILDING AND RUNNING CINDER
+=============================================
+
+**** Short instructions ****
+
+1. Use recovery image method to update phone to vanilla Android 1.6
+2. Backup the stock recovery image and boot image.
+3. Compile the Cinder-Linux kernel
+4. Unpack the boot.img file
+5. Repack the boot.img file with the new kernel
+6. Install the new boot.img file on the phone
+7. Back up the google applications to the sdcard
+8. Compile the stock Android platform
+9. Restore wireless functionality
+10. Restore google applications from sdcard
+11. Modify the Android code to integrate with Cinder
+12. Test the Cinder system calls and Android integration
+________________________________________________________________________________
+
+**** Long instructions ****
+
+-----------------------------------
+1. Updating the phone to Android 1.6
+-----------------------------------
+Before we do *anything*, we must first make sure we have a known good image of
+Android 1.6 that we can recover from in case anything goes wrong: bad kernel
+code that we wrote, etc. Using the recovery image instructions found at
+http://developer.htc.com/adp.html update the phone to vanilla Android 1.6. If
+the phone is a factory fresh ADP1, you'll need to update the radio firmware to
+match as well. The website has all the details.
+
+Note that this is our failsafe to get the phone back to a working state: the
+recovery image must be stored forever on the sdcard, so we can reflash the phone
+to a known good configuration if things go wrong. Typically, the image is saved
+as /sdcard/update.zip, a name the recovery tool for the phone knows to look for.
+
+DO NOT FORGET TO KEEP THE RECOVERY IMAGE ON THE SDCARD! I cannot stress this
+enough.
+
+-----------------------------------
+2. Compile the Cinder-Linux kernel
+-----------------------------------
+
+Compile the kernel by cd'ing to the kernel source directory, and running g1make
+(available in userspace/CinderUserspace/tools/bin).
+
+- There is already a kconfig file set up for the ADB1 phone.
+- The 'g1make' utility provided in userspace/CinderUserspace/tools/bin is used
+  to compile the kernel. It is a script that wraps 'make'.
+
+-----------------------------------
+3. Backup existing boot and recovery images.
+-----------------------------------
+See the instructions at
+
+http://android-dls.com/wiki/index.php?title=HOWTO:_Unpack%2C_Edit%2C_and_Re-Pack_Boot_Images
+
+Basically, here we back up /dev/mtd/mtd1 and /dev/mtd/mtd2 as /sdcard/mtd1.img
+and /sdcard/mtd2.img
+
+-----------------------------------
+4. Unpack the boot.img file
+-----------------------------------
+
+Using the unpack-bootimg.pl file in the userspace repo, unpack boot.img.
+This will yield a ramdisk file, a kernel file, and others. This is a good time
+to modify the default.prop to make the /system partition remountable as
+read/write. Change ro.secure=1 to ro.secure=0.
+
+-----------------------------------
+5. Repack the boot.img file with the new kernel
+-----------------------------------
+
+Kernel compilation resulted in a new kernel image stored at
+<kernel_dir>/arch/arm/boot/zImage We use this to make the new boot image. Use
+the repack-bootimg.pl tool found in the userspace repo as follows:
+
+./repack-bootimg.pl <path_to_zimage> mtd2.img-ramdisk <new_boot_img_filename>
+
+mtd2.img-ramdisk was outputted by unpacking the boot.img file from the phone in
+the previous step.
+
+-----------------------------------
+6. Install the new boot.img file on the phone
+-----------------------------------
+First, push the file to the phone:
+adb push <new_boot_img> /sdcard/
+
+Push the flash_image tool to the phone. flash_image is available in the
+userspace repository.
+adb push <path_to_flash_image> /data/
+Note that we push to /data and not /sdcard since items on /sdcard are not
+executable.
+
+Then, use adb to get root shell access on the phone:
+$: adb shell
+#:
+
+Overwrite the existing boot image.
+# cat /dev/zero > /dev/mtd/mtd2
+
+Flash the new image
+# /data/flash_image boot /sdcard/new_boot_img
+
+Reboot
+# reboot
+
+If all went well, the phone will reboot, and we can check that our kernel is
+running by going to home_screen->settings->about phone and seeing that the
+kernel version is the custom kernel.
+
+-----------------------------------
+7. Backup google applications to sdcard
+-----------------------------------
+
+Before compiling android AOSP, we need to backup the google apps to the sdcard.
+Use the google_apps_backup shell script to do so, on the phone.
+
+-----------------------------------
+7. Compile the Android platform
+-----------------------------------
+
+Compile the android platform. The instructions for doing so
+are online; in simplified form, it goes down to downloading the code
+and typing make.
+
+Note the following common headaches:
+1. Be sure to check out Android 1.6 Donut for AOSP
+
+2. Be sure to compile on a 32 bit system. Android 1.6 will NOT compile on 64 bit
+systems. Annoyingly, Android versions above 1.6 will NOT compile on 32 bit
+systems.
+
+3. Be sure to call "source ./build/envsetup.sh" from the Android root directory
+so we can use 'lunch' correctly.
+
+4. Be sure to select Android 1.6 AOSP in the lunch menu.
+I'm not kidding, part of their config system is actually called the lunch menu.
+
+5. Webkit as provided in the Android code did not compile for me. I had to patch
+it slightly to get it to compile; the webkit repo contains the webkit codebase
+after the patch.
+
+After make successfully runs, a new system.img file is outputted. This is our
+newly built android platform, but without any Cinder additions to it. The
+fastboot method is used to flash the image to the phone. Boot the phone into
+fastboot mode, then type:
+
+$ fastboot flash system <path_to_new_system.img>
+$ fastboot reboot
+
+After reboot, go to About Phone in the settings menu. It should note the custom
+version of Android.
+
+Note that this is still just a recompilation of stock Android 1.6. I will show
+you how to compile the Cinder enabled platform soon, but not just yet.
+
+-----------------------------------
+9. Restore wireless functionality
+-----------------------------------
+
+With the new kernel, wireless probably does not work. In order to get it working
+again, go to the system/wlan/ti subfolder in the Android codebase. Here we find
+the repo for the wireless driver. To recompile the wireless driver, we first
+export the location of the directory for the kernel we are building for as
+follows:
+
+$ export KERNEL_DIR=<path_to_kernel_dir>
+
+Then we make the driver as follows:
+
+$ make
+
+The output is a kernel module for the wireless, wlan.ko. We push it to the phone
+as follows:
+$ adb push wlan.ko /system/lib/modules
+
+Then we reboot the phone, in ADB shell, through the touchscreen UI, however we
+want.
+$ adb shell
+# reboot
+
+Note that when pushing the kernel module, it might have complained that /system
+is read only. If so, we remount the system partition as follows:
+$ adb remount
+
+And then try pushing the module again. Note: This will only work if we modified
+the ramdisk to have the line ro.secure=0 in step 4.
+
+Once we reboot, wireless should work again. Expect to recompile the wireless in
+this fashion with every recompilation of the kernel.
+
+-----------------------------------
+10. Restore google applications from sdcard
+-----------------------------------
+
+On the phone, run the google_apps_restore script found in the userspace repo.
+This restores all the closed source google apps like market and youtube so we
+can use it if necessary.
+
+-----------------------------------
+11. Modify the Android code to integrate with Cinder
+-----------------------------------
+
+Android uses repo as a wrapper around git. Consequently, this means that it is
+made up of several git repos. Since repo is messy, I only cloned the git repos
+that I modified for Cinder integration in the android codebase - dalvik, and
+system/wlan/ti.
+
+In order to get stock Android integrated with Cinder, one must merge my changes
+(found in the dalvik and wlan repos) back to stock android. A simple way to do
+so would be to generate a patch file from the git history in the repos I
+uploaded that contains all Cinder integration code, and apply that patch to the
+dalvik and TI wlan codebases in the stock android code.
+
+Again, note only dalvik and system/wlan/ti need to be changed.
+
+Once the changes are applied, simply recompiled Android as before, and install
+it on the phone, as before. After this step, you now have a Cinder running
+Android ADB1 phone.
+
+-----------------------------------
+12. Test Cinder system calls and Android integration
+-----------------------------------
+
+Once the phone is running Cinder enhanced Android Linux, the following can be
+run for testing:
+1. cinder_ptest in the userspace repo is an interactive program for testing
+cinder system calls
+
+2. The other tests in cinder_validation can be used to verify that resource
+isolation and subdivision are working as expected.
+
+3. PowerArbiter daemon can be started and interacted with the PAController
+CLI program to limit energy usage for unmodified Android applications. The
+modified android platform connects to PowerArbiter if it is running to determine
+if a newly started application is energy limited or not.
